@@ -1,35 +1,35 @@
 import { useMemo, useState } from "react";
 import { computeAllocation } from "../lib/allocate";
-import { CATEGORY_COLORS, formatCurrency } from "../lib/format";
-
-const AMOUNT_PRESETS = [50000, 100000, 200000, 500000];
+import { allocatePresets, defaultAllocateAmount, roundingStep } from "../lib/currency";
+import { CATEGORY_COLORS } from "../lib/format";
+import { useLocale } from "../locale";
 
 export default function AllocateFunds({ computed }) {
-  const [amount, setAmount] = useState(100000);
+  const { t, money, moneyCompact, catLabel, symbol, currency } = useLocale();
+  const [amount, setAmount] = useState(() => defaultAllocateAmount(currency));
   const [mode, setMode] = useState("smart");
   const { total, cats } = computed;
 
   const { suggestions, projection } = useMemo(
-    () => computeAllocation(amount, mode, total, cats),
-    [amount, mode, total, cats]
+    () => computeAllocation(amount, mode, total, cats, roundingStep(currency)),
+    [amount, mode, total, cats, currency]
   );
 
   return (
     <div className="update">
       <div className="update-head">
-        <h1>Allocate New Funds</h1>
-        <p className="update-sub">输入这次新到账、还没分配的资金（工资/其他收入），自动按当前偏离度智能分配到股票/债券/黄金/现金(MMF) 四项。</p>
+        <h1>{t("alloc.title")}</h1>
+        <p className="update-sub">{t("alloc.sub")}</p>
       </div>
 
       <div className="update-form">
         <div className="upd-row">
           <div className="upd-meta">
-            <div className="upd-label">新到账金额</div>
-            <div className="upd-en">New funds to allocate</div>
-            <div className="upd-hint">这次新到账、尚未投入组合的资金（日元）</div>
+            <div className="upd-label">{t("alloc.amount")}</div>
+            <div className="upd-hint">{t("alloc.amountHint")}</div>
           </div>
           <div className="upd-input-wrap">
-            <span className="upd-cur">¥</span>
+            <span className="upd-cur">{symbol}</span>
             <input
               type="number"
               inputMode="decimal"
@@ -38,26 +38,26 @@ export default function AllocateFunds({ computed }) {
               onChange={(e) => setAmount(Number(e.target.value) || 0)}
               onFocus={(e) => e.target.select()}
             />
-            <span className="upd-cur-label">JPY</span>
+            <span className="upd-cur-label">{currency}</span>
           </div>
         </div>
         <div className="alloc-presets">
-          {AMOUNT_PRESETS.map((preset) => (
+          {allocatePresets(currency).map((preset) => (
             <button key={preset} className={`alloc-preset ${amount === preset ? "on" : ""}`} onClick={() => setAmount(preset)}>
-              ¥{(preset / 10000).toFixed(0)}万
+              {moneyCompact(preset)}
             </button>
           ))}
         </div>
         <div className="alloc-mode-row">
-          <div className="alloc-mode-label">分配策略</div>
+          <div className="alloc-mode-label">{t("alloc.strategy")}</div>
           <div className="alloc-mode-tabs">
             <button className={mode === "smart" ? "on" : ""} onClick={() => setMode("smart")}>
-              <span className="m-title">Smart</span>
-              <span className="m-sub">优先补齐最低配的</span>
+              <span className="m-title">{t("alloc.smart")}</span>
+              <span className="m-sub">{t("alloc.smartSub")}</span>
             </button>
             <button className={mode === "proportional" ? "on" : ""} onClick={() => setMode("proportional")}>
-              <span className="m-title">Proportional</span>
-              <span className="m-sub">按目标比例平均分</span>
+              <span className="m-title">{t("alloc.prop")}</span>
+              <span className="m-sub">{t("alloc.propSub")}</span>
             </button>
           </div>
         </div>
@@ -66,8 +66,8 @@ export default function AllocateFunds({ computed }) {
       {suggestions && suggestions.length > 0 && (
         <div className="card">
           <div className="card-head">
-            <h2>Suggested Allocation</h2>
-            <span className="card-sub">{mode === "smart" ? "智能水位填充" : "按目标比例"}</span>
+            <h2>{t("alloc.suggested")}</h2>
+            <span className="card-sub">{mode === "smart" ? t("alloc.modeSmart") : t("alloc.modeProp")}</span>
           </div>
           <div className="alloc-results">
             {suggestions.map((s) => {
@@ -78,18 +78,18 @@ export default function AllocateFunds({ computed }) {
                   <div className="alloc-row-top">
                     <div className="alloc-row-label">
                       <span className="dot inline" style={{ background: CATEGORY_COLORS[s.key] }} />
-                      <span className="alloc-row-name">{s.label}</span>
-                      <span className="alloc-row-en">{cat?.subtitle}</span>
+                      <span className="alloc-row-name">{catLabel(s.key)}</span>
+                      {cat?.note && <span className="alloc-row-en">{cat.note}</span>}
                     </div>
-                    <div className="alloc-result-amount">{formatCurrency(s.amount)}</div>
+                    <div className="alloc-result-amount">{money(s.amount)}</div>
                   </div>
                   <div className="alloc-row-bar">
                     <div className="alloc-row-bar-fill" style={{ width: `${pct}%`, background: CATEGORY_COLORS[s.key] }} />
                   </div>
                   <div className="alloc-row-bot">
-                    <span className="alloc-pct">{pct.toFixed(1)}% of investment</span>
+                    <span className="alloc-pct">{t("alloc.pctOf", { pct: pct.toFixed(1) })}</span>
                     <span className="alloc-effect">
-                      {formatCurrency(s.currentValue)} → {formatCurrency(s.newValue)}
+                      {money(s.currentValue)} → {money(s.newValue)}
                     </span>
                   </div>
                 </div>
@@ -99,11 +99,11 @@ export default function AllocateFunds({ computed }) {
 
           {projection && (
             <div className="alloc-projection">
-              <div className="alloc-proj-head">After this allocation</div>
+              <div className="alloc-proj-head">{t("alloc.after")}</div>
               <div className="alloc-proj-bars">
                 {projection.map((p) => (
                   <div key={p.key} className="alloc-proj-row">
-                    <span className="alloc-proj-name">{p.label}</span>
+                    <span className="alloc-proj-name">{catLabel(p.key)}</span>
                     <div className="alloc-proj-bar">
                       <div
                         className="alloc-proj-bar-current"
@@ -123,15 +123,15 @@ export default function AllocateFunds({ computed }) {
               <div className="alloc-proj-legend">
                 <span>
                   <span className="legend-swatch" style={{ background: "#9a9388", opacity: 0.3 }} />
-                  before
+                  {t("alloc.before")}
                 </span>
                 <span>
                   <span className="legend-swatch" style={{ background: "#c8a96a" }} />
-                  after
+                  {t("alloc.afterLegend")}
                 </span>
                 <span>
                   <span className="legend-swatch" style={{ background: "#e8e3d8", width: 1.5 }} />
-                  target
+                  {t("alloc.targetLegend")}
                 </span>
               </div>
             </div>

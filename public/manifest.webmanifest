@@ -1,7 +1,7 @@
 {
   "name": "Permanent Portfolio",
   "short_name": "Portfolio",
-  "description": "Harry Browne permanent portfolio tracker · 恒久投資組合",
+  "description": "Track and rebalance a Harry Browne permanent portfolio",
   "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",

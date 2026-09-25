@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatCurrency } from "../lib/format";
+import { useLocale } from "../locale";
 
 function useAnimatedNumber(value, duration = 900) {
   const [display, setDisplay] = useState(value);
@@ -32,6 +32,7 @@ function useAnimatedNumber(value, duration = 900) {
 }
 
 export default function AnimatedValue({ value, className }) {
+  const { money } = useLocale();
   const animated = useAnimatedNumber(value || 0, 900);
-  return <span className={className}>{formatCurrency(animated)}</span>;
+  return <span className={className}>{money(animated)}</span>;
 }

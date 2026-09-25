@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { formatCurrency, parseExpression } from "../lib/format";
-
-const PRESETS = [10000, 30000, 50000, 100000];
+import { parseExpression } from "../lib/format";
+import { adjustPresets } from "../lib/currency";
+import { useLocale } from "../locale";
 
 // A small popover for adding/subtracting a quick amount (or expression) from
 // a value, used by the "+" button next to each holdings input.
 export default function QuickAdjustPopover({ currentValue, onApply, onClose }) {
+  const { t, money, moneyCompact, currency } = useLocale();
   const [sign, setSign] = useState("+");
   const [text, setText] = useState("");
   const inputRef = useRef(null);
@@ -35,8 +36,8 @@ export default function QuickAdjustPopover({ currentValue, onApply, onClose }) {
       <div className="qa-backdrop" onClick={onClose} />
       <div className="qa-popover" onClick={(e) => e.stopPropagation()}>
         <div className="qa-head">
-          <div className="qa-current-label">Current</div>
-          <div className="qa-current-value">{formatCurrency(currentValue)}</div>
+          <div className="qa-current-label">{t("qa.current")}</div>
+          <div className="qa-current-value">{money(currentValue)}</div>
         </div>
         <div className="qa-body">
           <div className="qa-op-row">
@@ -51,7 +52,7 @@ export default function QuickAdjustPopover({ currentValue, onApply, onClose }) {
               type="text"
               inputMode="decimal"
               className="qa-input"
-              placeholder="金额（支持 5万 / 50000+5000）"
+              placeholder={t("qa.placeholder")}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
@@ -60,29 +61,29 @@ export default function QuickAdjustPopover({ currentValue, onApply, onClose }) {
             />
           </div>
           <div className="qa-presets">
-            {PRESETS.map((p) => (
+            {adjustPresets(currency).map((p) => (
               <button key={p} className="qa-preset" onClick={() => setText(String(p))}>
-                ¥{(p / 10000).toFixed(0)}万
+                {moneyCompact(p)}
               </button>
             ))}
           </div>
           {nextValue !== null && (
             <div className="qa-preview">
               <span className="qa-preview-arrow">→</span>
-              <span className="qa-preview-value">{formatCurrency(nextValue)}</span>
+              <span className="qa-preview-value">{money(nextValue)}</span>
               <span className="qa-preview-delta">
                 ({sign === "+" ? "+" : "−"}
-                {formatCurrency(parsed)})
+                {money(parsed)})
               </span>
             </div>
           )}
         </div>
         <div className="qa-actions">
           <button className="btn-ghost" onClick={onClose}>
-            Cancel
+            {t("btn.cancel")}
           </button>
           <button className="btn-primary" disabled={nextValue === null} onClick={apply}>
-            Apply
+            {t("btn.apply")}
           </button>
         </div>
       </div>

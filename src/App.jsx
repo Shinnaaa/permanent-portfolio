@@ -1,68 +1,89 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dashboard from "./components/Dashboard";
+import Onboarding from "./components/Onboarding";
 import UpdateForm from "./components/UpdateForm";
 import AllocateFunds from "./components/AllocateFunds";
 import Settings from "./components/Settings";
 import History from "./components/History";
 import { computePortfolio } from "./lib/compute";
-import { todayISO, currentYearMonth } from "./lib/format";
+import { defaultCurrencyFor } from "./lib/currency";
+import { CATEGORY_KEYS, todayISO, currentYearMonth } from "./lib/format";
+import { LANGUAGES, detectLanguage } from "./lib/i18n";
+import { sampleData } from "./lib/sample";
 import {
   DATA_VERSION,
   DEFAULT_HOLDINGS,
   DEFAULT_SETTINGS,
+  clearPortfolioData,
+  hasHoldings,
   loadPortfolioData,
-  savePortfolioData,
+  loadPreference,
   loadSyncSettings,
+  normalizeData,
+  savePortfolioData,
+  savePreference,
   saveSyncSettings,
 } from "./lib/storage";
 import { getOrCreateGist, readGist, updateGist, verifyToken, GIST_FILENAME } from "./lib/gistSync";
+import { LocaleContext, makeLocale } from "./locale";
 
-function loadPrivacyMode() {
-  try {
-    return localStorage.getItem("pp:privacy") === "1";
-  } catch {
-    return false;
-  }
-}
+const browserLanguages = typeof navigator !== "undefined" ? navigator.languages || [navigator.language] : [];
+const FALLBACK_CURRENCY = defaultCurrencyFor(browserLanguages[0] || "");
 
 export default function App() {
   const [holdings, setHoldings] = useState(DEFAULT_HOLDINGS);
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, currency: FALLBACK_CURRENCY });
   const [snapshots, setSnapshots] = useState([]);
+  const [isSample, setIsSample] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [editingSnapshot, setEditingSnapshot] = useState(null);
-  const [privacy, setPrivacy] = useState(loadPrivacyMode);
+  const [privacy, setPrivacy] = useState(() => loadPreference("privacy", "0") === "1");
+  const [lang, setLang] = useState(() => loadPreference("lang", null) || detectLanguage(browserLanguages));
   const [menuOpen, setMenuOpen] = useState(false);
   const fileInputRef = useRef(null);
 
-  const togglePrivacy = () => {
-    const next = !privacy;
-    setPrivacy(next);
-    try {
-      localStorage.setItem("pp:privacy", next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  };
+  const locale = useMemo(() => makeLocale(lang, settings.currency), [lang, settings.currency]);
+  const { t } = locale;
 
-  const [sync, setSync] = useState(loadSyncSettings());
+  const [sync, setSync] = useState(loadSyncSettings);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [syncError, setSyncError] = useState(null);
   const skipNextPush = useRef(false);
   const hasSyncedOnce = useRef(false);
   const [toast, setToast] = useState(null);
 
+  const changeLang = (code) => {
+    setLang(code);
+    savePreference("lang", code);
+  };
+
+  const togglePrivacy = () => {
+    const next = !privacy;
+    setPrivacy(next);
+    savePreference("privacy", next ? "1" : "0");
+  };
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
+  // Replaces all portfolio state with already-normalized data. `fromRemote`
+  // suppresses the echo push right after pulling from the Gist.
+  const applyData = useCallback((data, { fromRemote = false } = {}) => {
+    if (fromRemote) skipNextPush.current = true;
+    setHoldings(data.holdings);
+    setSettings(data.settings);
+    setSnapshots(data.snapshots);
+    setIsSample(data.sample);
+  }, []);
+
   // Load persisted data once on mount.
   useEffect(() => {
-    const data = loadPortfolioData();
-    if (data) {
-      if (data.holdings) setHoldings({ ...DEFAULT_HOLDINGS, ...data.holdings });
-      if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
-      if (data.snapshots) setSnapshots(data.snapshots);
-    }
+    const stored = loadPortfolioData();
+    if (stored) applyData(normalizeData(stored, FALLBACK_CURRENCY));
     setLoaded(true);
-  }, []);
+  }, [applyData]);
 
   // Pull once from Gist on first load if sync is enabled.
   useEffect(() => {
@@ -72,18 +93,7 @@ export default function App() {
       setSyncStatus("syncing");
       try {
         const { data, updatedAt } = await readGist(sync.token, sync.gistId);
-        if (data.holdings) {
-          skipNextPush.current = true;
-          setHoldings({ ...DEFAULT_HOLDINGS, ...data.holdings });
-        }
-        if (data.settings) {
-          skipNextPush.current = true;
-          setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
-        }
-        if (Array.isArray(data.snapshots)) {
-          skipNextPush.current = true;
-          setSnapshots(data.snapshots);
-        }
+        applyData(normalizeData(data, settings.currency), { fromRemote: true });
         const nextSync = { ...sync, lastSyncAt: updatedAt };
         setSync(nextSync);
         saveSyncSettings(nextSync);
@@ -93,13 +103,19 @@ export default function App() {
         setSyncError(err.message);
       }
     })();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- pull once per sync configuration, not on every state change
   }, [loaded, sync.enabled, sync.token, sync.gistId]);
+
+  const payload = useCallback(
+    () => ({ version: DATA_VERSION, holdings, settings, snapshots, sample: isSample, savedAt: new Date().toISOString() }),
+    [holdings, settings, snapshots, isSample]
+  );
 
   // Persist to localStorage on every change, once initial load has happened.
   useEffect(() => {
     if (!loaded) return;
-    savePortfolioData({ version: DATA_VERSION, holdings, settings, snapshots, savedAt: new Date().toISOString() });
-  }, [holdings, settings, snapshots, loaded]);
+    savePortfolioData(payload());
+  }, [payload, loaded]);
 
   // Debounced push to Gist. Skipped once right after a pull, so we don't
   // immediately echo back what we just received.
@@ -112,13 +128,7 @@ export default function App() {
     const timer = setTimeout(async () => {
       setSyncStatus("syncing");
       try {
-        const { updatedAt } = await updateGist(sync.token, sync.gistId, {
-          version: DATA_VERSION,
-          holdings,
-          settings,
-          snapshots,
-          savedAt: new Date().toISOString(),
-        });
+        const { updatedAt } = await updateGist(sync.token, sync.gistId, payload());
         const nextSync = { ...sync, lastSyncAt: updatedAt };
         setSync(nextSync);
         saveSyncSettings(nextSync);
@@ -130,7 +140,8 @@ export default function App() {
       }
     }, 1500);
     return () => clearTimeout(timer);
-  }, [holdings, settings, snapshots, loaded, sync.enabled, sync.token, sync.gistId]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `sync` changes on every push (lastSyncAt); depending on it would loop
+  }, [payload, loaded, sync.enabled, sync.token, sync.gistId]);
 
   const showToast = (msg, type = "ok") => {
     setToast({ msg, type });
@@ -138,8 +149,9 @@ export default function App() {
   };
 
   const exportJSON = () => {
-    const payload = { version: DATA_VERSION, exportedAt: new Date().toISOString(), holdings, settings, snapshots };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ ...payload(), exportedAt: new Date().toISOString() }, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -148,7 +160,7 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    showToast("已导出 portfolio JSON");
+    showToast(t("toast.exported"));
   };
 
   const triggerImportClick = () => fileInputRef.current?.click();
@@ -157,19 +169,16 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(await file.text());
       if (!parsed || typeof parsed !== "object") throw new Error("Invalid file");
-      if (!window.confirm("确认导入此文件？当前数据将被覆盖（建议先 Export 备份）。")) {
+      if (!window.confirm(t("confirm.import"))) {
         e.target.value = "";
         return;
       }
-      if (parsed.holdings) setHoldings({ ...DEFAULT_HOLDINGS, ...parsed.holdings });
-      if (parsed.settings) setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
-      if (Array.isArray(parsed.snapshots)) setSnapshots(parsed.snapshots);
-      showToast("已导入数据");
+      applyData(normalizeData(parsed, settings.currency));
+      showToast(t("toast.imported"));
     } catch (err) {
-      showToast("导入失败：" + err.message, "err");
+      showToast(t("toast.importFailed", { msg: err.message }), "err");
     }
     e.target.value = "";
   };
@@ -187,33 +196,14 @@ export default function App() {
         saveSyncSettings(nextSync);
 
         const remoteData = JSON.parse(gist.files[GIST_FILENAME].content || "{}");
-        const remoteHasData =
-          remoteData.holdings &&
-          (remoteData.holdings.stocks || remoteData.holdings.bonds || remoteData.holdings.gold || remoteData.holdings.cash);
-        const localHasData = holdings.stocks || holdings.bonds || holdings.gold || holdings.cash || snapshots.length > 0;
+        const remoteHasData = remoteData.holdings && hasHoldings(normalizeData(remoteData).holdings);
+        const localHasData = hasHoldings(holdings) || snapshots.length > 0;
 
-        const pullRemote = () => {
-          if (remoteData.holdings) {
-            skipNextPush.current = true;
-            setHoldings({ ...DEFAULT_HOLDINGS, ...remoteData.holdings });
-          }
-          if (remoteData.settings) {
-            skipNextPush.current = true;
-            setSettings({ ...DEFAULT_SETTINGS, ...remoteData.settings });
-          }
-          if (Array.isArray(remoteData.snapshots)) {
-            skipNextPush.current = true;
-            setSnapshots(remoteData.snapshots);
-          }
-        };
-        const pushLocal = () =>
-          updateGist(token, gist.id, { version: DATA_VERSION, holdings, settings, snapshots, savedAt: new Date().toISOString() });
+        const pullRemote = () => applyData(normalizeData(remoteData, settings.currency), { fromRemote: true });
+        const pushLocal = () => updateGist(token, gist.id, payload());
 
         if (remoteHasData && localHasData) {
-          const useRemote = window.confirm(
-            "远端 Gist 已有数据，本地也有数据。\n\n点「确定」= 用远端数据覆盖本地（推荐第二台设备选这个）\n点「取消」= 用本地数据覆盖远端（第一次设置时选这个）"
-          );
-          if (useRemote) pullRemote();
+          if (window.confirm(t("confirm.syncConflict"))) pullRemote();
           else await pushLocal();
         } else if (remoteHasData) {
           pullRemote();
@@ -223,23 +213,24 @@ export default function App() {
 
         hasSyncedOnce.current = true;
         setSyncStatus("ok");
-        showToast("Gist 同步已连接");
+        showToast(t("toast.syncConnected"));
       } catch (err) {
         setSyncStatus("err");
         setSyncError(err.message);
-        showToast("连接失败：" + err.message, "err");
+        showToast(t("toast.connectFailed", { msg: err.message }), "err");
       }
     },
-    [sync.gistId, holdings, settings, snapshots]
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `t` only changes with the language; a stale label is harmless here
+    [sync.gistId, holdings, snapshots, settings.currency, payload, applyData]
   );
 
   const disconnectSync = () => {
-    if (!window.confirm("断开 Gist 同步？本地数据保留，但不再自动同步。Token 也会从浏览器删除。")) return;
+    if (!window.confirm(t("confirm.disconnect"))) return;
     const nextSync = { token: "", gistId: "", enabled: false, lastSyncAt: null };
     setSync(nextSync);
     saveSyncSettings(nextSync);
     setSyncStatus("idle");
-    showToast("已断开同步");
+    showToast(t("toast.disconnected"));
   };
 
   const manualPull = async () => {
@@ -247,27 +238,16 @@ export default function App() {
     setSyncStatus("syncing");
     try {
       const { data, updatedAt } = await readGist(sync.token, sync.gistId);
-      if (data.holdings) {
-        skipNextPush.current = true;
-        setHoldings({ ...DEFAULT_HOLDINGS, ...data.holdings });
-      }
-      if (data.settings) {
-        skipNextPush.current = true;
-        setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
-      }
-      if (Array.isArray(data.snapshots)) {
-        skipNextPush.current = true;
-        setSnapshots(data.snapshots);
-      }
+      applyData(normalizeData(data, settings.currency), { fromRemote: true });
       const nextSync = { ...sync, lastSyncAt: updatedAt };
       setSync(nextSync);
       saveSyncSettings(nextSync);
       setSyncStatus("ok");
-      showToast("已从 Gist 拉取最新数据");
+      showToast(t("toast.pulled"));
     } catch (err) {
       setSyncStatus("err");
       setSyncError(err.message);
-      showToast("拉取失败：" + err.message, "err");
+      showToast(t("toast.pullFailed", { msg: err.message }), "err");
     }
   };
 
@@ -275,18 +255,38 @@ export default function App() {
     const nextHoldings = { ...editingSnapshot, ...update, updatedAt: new Date().toISOString() };
     setHoldings(nextHoldings);
     const ym = currentYearMonth();
-    const snapshot = {
-      ym,
-      date: todayISO(),
-      stocks: nextHoldings.stocks,
-      bonds: nextHoldings.bonds,
-      gold: nextHoldings.gold,
-      cash: nextHoldings.cash,
-    };
-    const withoutThisMonth = snapshots.filter((s) => s.ym !== ym);
-    setSnapshots([...withoutThisMonth, snapshot].sort((a, b) => a.ym.localeCompare(b.ym)));
+    const snapshot = { ym, date: todayISO(), ...Object.fromEntries(CATEGORY_KEYS.map((k) => [k, nextHoldings[k]])) };
+    // Real numbers replace the made-up sample history rather than mixing with it.
+    const kept = isSample ? [] : snapshots.filter((s) => s.ym !== ym);
+    setSnapshots([...kept, snapshot].sort((a, b) => a.ym.localeCompare(b.ym)));
+    setIsSample(false);
     setActiveTab("dashboard");
-    showToast("已保存并记录月度快照");
+    showToast(t("toast.saved"));
+  };
+
+  const loadSample = () => {
+    const sample = sampleData(settings.currency);
+    setHoldings(sample.holdings);
+    setSnapshots(sample.snapshots);
+    setIsSample(true);
+    showToast(t("toast.sampleLoaded"));
+  };
+
+  const clearSample = () => {
+    setHoldings(DEFAULT_HOLDINGS);
+    setSnapshots([]);
+    setIsSample(false);
+  };
+
+  const resetAll = () => {
+    if (!window.confirm(t("confirm.reset"))) return;
+    clearPortfolioData();
+    setHoldings(DEFAULT_HOLDINGS);
+    setSnapshots([]);
+    setSettings({ ...DEFAULT_SETTINGS, currency: settings.currency });
+    setIsSample(false);
+    setActiveTab("dashboard");
+    showToast(t("toast.reset"));
   };
 
   const computed = useMemo(() => computePortfolio(holdings, settings, snapshots), [holdings, settings, snapshots]);
@@ -296,148 +296,174 @@ export default function App() {
     setActiveTab("update");
   };
 
+  const goTo = (tab) => {
+    if (tab === "update") openUpdate();
+    else setActiveTab(tab);
+    setMenuOpen(false);
+  };
+
   if (!loaded) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#0f0f0e",
-          color: "#e8e3d8",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: "Georgia, serif",
-        }}
-      >
-        <div style={{ opacity: 0.4, letterSpacing: "0.2em", fontSize: 11, textTransform: "uppercase" }}>Loading portfolio…</div>
+      <div className="pp-loading">
+        <div>{t("loading")}</div>
       </div>
     );
   }
 
+  const isEmpty = !hasHoldings(holdings);
+  const tabs = ["dashboard", "update", "allocate", "history", "settings"];
+  const tabLabel = { dashboard: "nav.overview", update: "nav.update", allocate: "nav.allocate", history: "nav.history", settings: "nav.settings" };
+
   return (
-    <div className="pp-app" data-privacy={privacy ? "1" : "0"}>
-      <input ref={fileInputRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={handleImportFile} />
-      <header className="pp-header">
-        <div className="pp-header-inner">
-          <div className="pp-brand">
-            <div className="pp-brand-mark">PP</div>
-            <div className="pp-brand-text">
-              <div className="pp-brand-title">Permanent Portfolio</div>
-              <div className="pp-brand-sub">恒久投資組合 · {todayISO()}</div>
+    <LocaleContext.Provider value={locale}>
+      <div className="pp-app" data-privacy={privacy ? "1" : "0"}>
+        <input ref={fileInputRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={handleImportFile} />
+        <header className="pp-header">
+          <div className="pp-header-inner">
+            <div className="pp-brand">
+              <div className="pp-brand-mark">PP</div>
+              <div className="pp-brand-text">
+                <div className="pp-brand-title">Permanent Portfolio</div>
+                <div className="pp-brand-sub">
+                  {t("brand.sub")} · {todayISO()}
+                </div>
+              </div>
             </div>
+            <nav className="pp-nav">
+              <div className="pp-tabs">
+                {tabs.map((tab) => (
+                  <button key={tab} className={activeTab === tab ? "on" : ""} onClick={() => goTo(tab)}>
+                    {t(tabLabel[tab])}
+                  </button>
+                ))}
+              </div>
+              <div className="pp-tools">
+                {sync.enabled && (
+                  <button
+                    className={`sync-pill sync-${syncStatus}`}
+                    onClick={manualPull}
+                    title={syncError || (sync.lastSyncAt ? t("sync.lastSync", { time: new Date(sync.lastSyncAt).toLocaleString() }) : t("sync.clickToPull"))}
+                  >
+                    <span className="sync-dot" />
+                    <span className="sync-text">
+                      {syncStatus === "syncing" ? t("sync.syncing") : syncStatus === "err" ? t("sync.error") : t("sync.synced")}
+                    </span>
+                  </button>
+                )}
+                <div className="pp-lang" role="group" aria-label={t("nav.language")}>
+                  {LANGUAGES.map((l) => (
+                    <button key={l.code} className={lang === l.code ? "on" : ""} title={l.name} onClick={() => changeLang(l.code)}>
+                      {l.short}
+                    </button>
+                  ))}
+                </div>
+                <div className="pp-tools-inline">
+                  <button className={`ic privacy-toggle ${privacy ? "on" : ""}`} title={privacy ? t("privacy.show") : t("privacy.hide")} onClick={togglePrivacy}>
+                    {privacy ? "◐" : "○"}
+                  </button>
+                  <button className="ic" title={t("data.export")} onClick={exportJSON}>
+                    ↓
+                  </button>
+                  <button className="ic" title={t("data.import")} onClick={triggerImportClick}>
+                    ↑
+                  </button>
+                </div>
+                <button className={`ic pp-menu-btn ${menuOpen ? "on" : ""}`} title={t("nav.more")} onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
+                  ⋯
+                </button>
+              </div>
+            </nav>
+            {menuOpen && (
+              <>
+                <div className="pp-menu-backdrop" onClick={() => setMenuOpen(false)} />
+                <div className="pp-menu" role="menu">
+                  <button className={`pp-menu-item ${privacy ? "on" : ""}`} onClick={() => { togglePrivacy(); setMenuOpen(false); }}>
+                    <span className="pp-menu-icon">{privacy ? "◐" : "○"}</span>
+                    <span className="pp-menu-label">{privacy ? t("privacy.show") : t("privacy.hide")}</span>
+                    <span className="pp-menu-sub">{privacy ? t("privacy.on") : t("privacy.off")}</span>
+                  </button>
+                  <button className="pp-menu-item" onClick={() => { exportJSON(); setMenuOpen(false); }}>
+                    <span className="pp-menu-icon">↓</span>
+                    <span className="pp-menu-label">{t("data.export")}</span>
+                    <span className="pp-menu-sub">{t("data.exportSub")}</span>
+                  </button>
+                  <button className="pp-menu-item" onClick={() => { triggerImportClick(); setMenuOpen(false); }}>
+                    <span className="pp-menu-icon">↑</span>
+                    <span className="pp-menu-label">{t("data.import")}</span>
+                    <span className="pp-menu-sub">{t("data.importSub")}</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-          <nav className="pp-nav">
-            <div className="pp-tabs">
-              <button className={activeTab === "dashboard" ? "on" : ""} onClick={() => { setActiveTab("dashboard"); setMenuOpen(false); }}>
-                Overview
-              </button>
-              <button className={activeTab === "update" ? "on" : ""} onClick={() => { openUpdate(); setMenuOpen(false); }}>
-                Update
-              </button>
-              <button className={activeTab === "allocate" ? "on" : ""} onClick={() => { setActiveTab("allocate"); setMenuOpen(false); }}>
-                Allocate
-              </button>
-              <button className={activeTab === "history" ? "on" : ""} onClick={() => { setActiveTab("history"); setMenuOpen(false); }}>
-                History
-              </button>
-              <button className={activeTab === "settings" ? "on" : ""} onClick={() => { setActiveTab("settings"); setMenuOpen(false); }}>
-                Settings
+        </header>
+
+        <main className="pp-main">
+          {isSample && activeTab !== "settings" && (
+            <div className="sample-banner">
+              <span>{t("sample.banner")}</span>
+              <button className="btn-ghost" onClick={clearSample}>
+                {t("sample.clear")}
               </button>
             </div>
-            <div className="pp-tools">
-              {sync.enabled && (
-                <button
-                  className={`sync-pill sync-${syncStatus}`}
-                  onClick={manualPull}
-                  title={syncError || (sync.lastSyncAt ? `Last sync ${new Date(sync.lastSyncAt).toLocaleString()}` : "Click to pull latest")}
-                >
-                  <span className="sync-dot" />
-                  <span className="sync-text">{syncStatus === "syncing" ? "Syncing" : syncStatus === "err" ? "Sync error" : "Synced"}</span>
-                </button>
-              )}
-              <div className="pp-tools-inline">
-                <button className={`ic privacy-toggle ${privacy ? "on" : ""}`} title={privacy ? "Show amounts" : "Hide amounts (privacy mode)"} onClick={togglePrivacy}>
-                  {privacy ? "◐" : "○"}
-                </button>
-                <button className="ic" title="Export JSON" onClick={exportJSON}>
-                  ↓
-                </button>
-                <button className="ic" title="Import JSON" onClick={triggerImportClick}>
-                  ↑
-                </button>
-              </div>
-              <button className={`ic pp-menu-btn ${menuOpen ? "on" : ""}`} title="More" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
-                ⋯
-              </button>
-            </div>
-          </nav>
-          {menuOpen && (
-            <>
-              <div className="pp-menu-backdrop" onClick={() => setMenuOpen(false)} />
-              <div className="pp-menu" role="menu">
-                <button className={`pp-menu-item ${privacy ? "on" : ""}`} onClick={() => { togglePrivacy(); setMenuOpen(false); }}>
-                  <span className="pp-menu-icon">{privacy ? "◐" : "○"}</span>
-                  <span className="pp-menu-label">{privacy ? "Show amounts" : "Hide amounts"}</span>
-                  <span className="pp-menu-sub">{privacy ? "取消隐私模式" : "隐私模式"}</span>
-                </button>
-                <button className="pp-menu-item" onClick={() => { exportJSON(); setMenuOpen(false); }}>
-                  <span className="pp-menu-icon">↓</span>
-                  <span className="pp-menu-label">Export JSON</span>
-                  <span className="pp-menu-sub">导出备份</span>
-                </button>
-                <button className="pp-menu-item" onClick={() => { triggerImportClick(); setMenuOpen(false); }}>
-                  <span className="pp-menu-icon">↑</span>
-                  <span className="pp-menu-label">Import JSON</span>
-                  <span className="pp-menu-sub">导入数据</span>
-                </button>
-              </div>
-            </>
           )}
-        </div>
-      </header>
+          {activeTab === "dashboard" &&
+            (isEmpty ? (
+              <Onboarding
+                onCurrencyChange={(currency) => setSettings({ ...settings, currency })}
+                onEnter={openUpdate}
+                onSample={loadSample}
+              />
+            ) : (
+              <Dashboard computed={computed} holdings={holdings} settings={settings} onUpdate={openUpdate} />
+            ))}
+          {activeTab === "update" && (
+            <UpdateForm editing={editingSnapshot} notes={settings.notes} onSave={handleSaveUpdate} onCancel={() => setActiveTab("dashboard")} />
+          )}
+          {activeTab === "settings" && (
+            <Settings
+              settings={settings}
+              onSave={(s) => {
+                setSettings(s);
+                showToast(t("toast.settingsSaved"));
+              }}
+              onReset={resetAll}
+              sync={sync}
+              syncStatus={syncStatus}
+              syncError={syncError}
+              onConnectSync={connectSync}
+              onDisconnectSync={disconnectSync}
+              onManualPull={manualPull}
+            />
+          )}
+          {activeTab === "allocate" && <AllocateFunds key={settings.currency} computed={computed} />}
+          {activeTab === "history" && (
+            <History
+              snapshots={snapshots}
+              onClear={() => {
+                if (window.confirm(t("confirm.clearSnapshots"))) {
+                  setSnapshots([]);
+                  showToast(t("toast.snapshotsCleared"));
+                }
+              }}
+              onExport={exportJSON}
+              onImport={triggerImportClick}
+            />
+          )}
+        </main>
 
-      <main className="pp-main">
-        {activeTab === "dashboard" && <Dashboard computed={computed} holdings={holdings} settings={settings} onUpdate={openUpdate} />}
-        {activeTab === "update" && <UpdateForm editing={editingSnapshot} onSave={handleSaveUpdate} onCancel={() => setActiveTab("dashboard")} />}
-        {activeTab === "settings" && (
-          <Settings
-            settings={settings}
-            onSave={(s) => { setSettings(s); showToast("设置已保存"); }}
-            sync={sync}
-            syncStatus={syncStatus}
-            syncError={syncError}
-            onConnectSync={connectSync}
-            onDisconnectSync={disconnectSync}
-            onManualPull={manualPull}
-          />
-        )}
-        {activeTab === "allocate" && <AllocateFunds computed={computed} />}
-        {activeTab === "history" && (
-          <History
-            snapshots={snapshots}
-            onClear={() => {
-              if (window.confirm("清空所有历史快照？此操作不可撤销。")) {
-                setSnapshots([]);
-                showToast("已清空快照");
-              }
-            }}
-            onExport={exportJSON}
-            onImport={triggerImportClick}
-          />
-        )}
-      </main>
+        <footer className="pp-footer">
+          <span>Harry Browne · 1981</span>
+          <span className="pp-dot">·</span>
+          <span>{t("footer.classes")}</span>
+          <span className="pp-dot">·</span>
+          <span>{holdings.updatedAt ? t("footer.lastUpdate", { date: holdings.updatedAt.slice(0, 10) }) : t("footer.never")}</span>
+          <span className="pp-dot">·</span>
+          <span>{t("footer.storage")}</span>
+        </footer>
 
-      <footer className="pp-footer">
-        <span>Harry Browne · 1981</span>
-        <span className="pp-dot">·</span>
-        <span>Stocks / Bonds / Gold / Cash</span>
-        <span className="pp-dot">·</span>
-        <span>{holdings.updatedAt ? `Last update ${holdings.updatedAt.slice(0, 10)}` : "Never updated"}</span>
-        <span className="pp-dot">·</span>
-        <span>Data: localStorage</span>
-      </footer>
-
-      {toast && <div className={`toast toast-${toast.type}`}>{toast.msg}</div>}
-    </div>
+        {toast && <div className={`toast toast-${toast.type}`}>{toast.msg}</div>}
+      </div>
+    </LocaleContext.Provider>
   );
 }

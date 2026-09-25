@@ -1,89 +1,86 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-A personal single-user tracker for the Harry Browne permanent portfolio strategy
-(equal-weight stocks / long-term bonds / gold / cash). React + Vite + Recharts,
-no backend. All state lives in the browser's `localStorage`; optional
-cross-device sync is a private GitHub Gist, read/written directly from the
-client using a personal access token the user pastes into Settings.
+A tracker for Harry Browne's permanent portfolio (stocks / long-term bonds /
+gold / cash, 25% each by default). React 19 + Vite + Recharts, no backend.
+State lives in `localStorage`; optional cross-device sync goes to a secret
+GitHub Gist, called directly from the browser with a token the user pastes into
+Settings. Deployed to GitHub Pages at `/permanent-portfolio/` (`base` in
+`vite.config.js` must match the repository name).
 
-This source tree was reconstructed in 2026-07 from a minified single-file
-`index.html` build that was the only thing previously committed (every prior
-commit was a whole-file re-upload via GitHub's web UI, no source). The
-reconstruction was verified pixel- and behavior-identical to that build. Going
-forward, commit source normally — don't collapse back to a single built file.
+History: the source was reconstructed in 2026-07 from a minified single-file
+build (verified pixel- and behavior-identical), then generalised in 2026-09
+from the author's personal setup (hard-coded JPY, the author's accounts and
+holdings as defaults, Chinese-only helper text) into a public app. Don't
+reintroduce personal defaults; user-specific things belong in their data.
 
 ## Commands
 
 ```
 npm install
 npm run dev       # Vite dev server
+npm test          # Vitest (tests/)
+npm run lint      # oxlint — CI requires zero warnings
 npm run build     # production build to dist/
-npm run preview   # serve the production build locally
-npm run lint      # oxlint
+npm run preview   # serve the build at /permanent-portfolio/
 ```
 
-No test suite exists. Verification so far has been manual/visual (screenshot
-diffing against the prior build) — there's no `npm test`.
+CI (`.github/workflows/ci.yml`) runs lint → test → build on every push and PR,
+and deploys `main` to Pages.
 
 ## Architecture
 
-- `src/App.jsx` — owns all state (`holdings`, `settings`, `snapshots`, sync
-  state) and the effects that persist it. Everything else is a fairly dumb
-  view fed by props/callbacks. There's no state management library and no
-  routing — `activeTab` is a plain string switched over in the `<main>` JSX.
-- `src/lib/compute.js` — derives the dashboard view model (per-category
-  share/target/deviation/action, balance score, month-over-month delta) from
-  raw `holdings` + `settings` + `snapshots`. Pure function, no React.
-- `src/lib/allocate.js` — the "Allocate New Funds" waterfall/proportional
-  split algorithm. Also pure, also worth keeping pure — the Allocate screen's
-  correctness depends on exact rounding behavior (rounds to nearest 100, then
-  nudges the largest category to absorb the remainder so amounts sum exactly).
-- `src/lib/storage.js` — localStorage read/write for portfolio data
-  (`pp:data:v1`) and sync settings (`pp:sync:v1`), plus the default
-  holdings/settings shape used to backfill missing fields on load.
-- `src/lib/gistSync.js` — thin wrapper over the GitHub REST API (gists
-  endpoint only). `App.jsx` handles the actual merge/conflict UX around it
-  (first-connect merge prompt, debounced push, skip-next-push echo guard).
-- `src/lib/format.js` — currency/percent formatting and the "smart" numeric
-  expression parser (`parseExpression`) used by `SmartInput` — accepts things
-  like `5万` or `50000+3000`, evaluated via a regex-gated `Function()` call.
-  Any change here needs to keep the regex gate airtight since it's eval'ing
-  user input.
-- `src/index.css` — one global stylesheet, BEM-ish class names per section
-  (`upd-*` for the Update form, `reb-*` for rebalance rows, `qa-*` for the
-  quick-adjust popover, etc.). No CSS modules, no Tailwind.
+- `src/App.jsx` — owns all state (`holdings`, `settings`, `snapshots`, the
+  `isSample` flag, sync state, UI language) and the effects that persist it.
+  Every way data comes in (localStorage, Gist pull, JSON import) goes through
+  `applyData(normalizeData(...))`. No router: `activeTab` is a string.
+- `src/locale.js` — `LocaleContext` with `t`, `money`, `moneyCompact`,
+  `symbol`, `catLabel`. Components get language and currency only from here.
+- `src/lib/` — pure, React-free, all covered by `tests/`:
+  - `compute.js` — dashboard view model: shares, deviation, action, balance
+    score, month-over-month change. Takes `now` for testability.
+  - `allocate.js` — splits new money (smart water-filling / proportional).
+    Rounds to `roundTo` (from `currency.roundingStep`) and nudges the largest
+    class so the parts sum exactly to the input. Gaps are measured against the
+    current total, by design.
+  - `currency.js` — `Intl.NumberFormat` wrappers and a per-currency `unit`
+    (≈US$70) that scales presets, sample data and rounding. Yen is normalised
+    to the half-width "¥" (the display serif lacks "￥").
+  - `format.js` — category keys/colours, percent/date helpers (local time, not
+    UTC) and `parseExpression`, which evaluates user input with `Function()`
+    behind a strict regex gate. Keep the gate airtight; add a test for any new
+    syntax.
+  - `storage.js` — localStorage keys (`pp:data:v1`, `pp:sync:v1`, `pp:lang`,
+    `pp:privacy`) and `normalizeData`, the single migration point.
+  - `i18n.js` — `en` / `zh` / `ja` strings. Tests fail if a key is missing in
+    any language or placeholders differ, and if a component uses an unknown key.
+  - `sample.js` — six months of sample data scaled to the chosen currency.
+  - `gistSync.js` — GitHub Gist REST calls.
+- `src/index.css` — one global stylesheet, BEM-ish prefixes per section
+  (`upd-*`, `reb-*`, `qa-*`, `onboard-*`, …).
 
-### Data model
+### Data model (version 3)
 
-`holdings`: `{ stocks, bonds, gold, cash, updatedAt }` — all four are
-JPY-denominated, overwrite-style values entered directly on the Update
-screen (whatever the user reads off their brokerage / MMF app that day).
-There is no incremental activity log and no stored exchange rate.
+- `holdings`: `{ stocks, bonds, gold, cash, updatedAt }` — current market
+  values in `settings.currency`, entered overwrite-style. No FX conversion, no
+  transaction log; FX moves and interest show up as ordinary monthly change.
+- `settings`: `{ targetStocks, targetBonds, targetGold, targetCash, threshold,
+  currency, notes: { stocks, bonds, gold, cash } }`.
+- `snapshots`: one per calendar month, `{ ym, date, stocks, bonds, gold, cash }`.
+- `sample`: true while the sample data is shown; saving real values replaces
+  the sample history.
 
-`cash` specifically represents the JPY-equivalent market value of a USD
-money-market fund holding — money earmarked for investment, not everyday
-spending cash (which this app deliberately does not track at all). Because
-it's entered the same overwrite way as stocks/bonds/gold, FX moves and MMF
-interest just show up as an ordinary month-over-month gain/loss for that
-category, exactly like market moves do for the others. This replaced an
-earlier design (`cashJPY` + `cashCNY` + a stored `jpyPerCny` rate, with an
-incremental "activity" log for salary/remittances/living expenses) that
-conflated investable cash with daily spending cash.
+Version 2 data (before currencies existed) is migrated as JPY. When changing
+the shape, bump `DATA_VERSION` and handle the old shape in `normalizeData`,
+with a test.
 
-`settings`: `{ targetStocks, targetBonds, targetGold, targetCash, threshold }`
-— no exchange rate field.
+## Conventions
 
-`snapshots`: one per calendar month, `{ ym, date, stocks, bonds, gold, cash }`.
-
-## Editing conventions here
-
-- Keep `lib/*` pure and React-free — `App.jsx` is the only place with
-  `useState`/`useEffect`; components take computed values as props.
-- The original app's UI copy is bilingual (Chinese labels, English subtitles)
-  — match that pattern for new fields rather than picking one language.
-- `formatCurrency`/`formatPercent` are the only formatters; don't inline
-  `toLocaleString` elsewhere.
+- Keep `lib/*` pure; components take computed values as props or from the
+  locale context.
+- All user-visible text goes through `t()` and exists in all three languages.
+- Format money only with `money` / `moneyCompact` from the context — never
+  inline `toLocaleString` or a currency symbol.

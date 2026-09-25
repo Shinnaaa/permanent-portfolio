@@ -1439,3 +1439,127 @@ body, html {
   .legend-label { font-size: 13px; }
   .reb-list .reb-row:first-child { padding-top: 8px; }
 }
+
+/* ── Loading ─────────────────────────────────────────────────────────── */
+.pp-loading {
+  min-height: 100vh;
+  background: #0f0f0e;
+  color: #e8e3d8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.4;
+  letter-spacing: 0.2em;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+/* ── Language switch (header) ────────────────────────────────────────── */
+.pp-lang {
+  display: flex;
+  border: 1px solid #2a2823;
+}
+.pp-nav .pp-lang button {
+  padding: 6px 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #7a7368;
+}
+.pp-nav .pp-lang button + button { border-left: 1px solid #2a2823; }
+.pp-nav .pp-lang button::after { display: none; }
+.pp-nav .pp-lang button:hover { color: #e8e3d8; }
+.pp-nav .pp-lang button.on { color: #0f0f0e; background: #c8a96a; }
+
+/* ── Onboarding (first run) ──────────────────────────────────────────── */
+.onboard {
+  max-width: 640px;
+  margin: 32px auto;
+  padding: 48px;
+  text-align: center;
+}
+.onboard-mark {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 14px);
+  gap: 4px;
+  margin-bottom: 24px;
+}
+.onboard-mark span { width: 14px; height: 14px; }
+.onboard-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 36px;
+  font-weight: 500;
+  color: #e8e3d8;
+  margin: 0 0 16px;
+  line-height: 1.2;
+}
+.onboard-body {
+  color: #9a9388;
+  line-height: 1.7;
+  margin: 0 auto 28px;
+  max-width: 520px;
+}
+.onboard-classes {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 22px;
+  padding: 0;
+  margin: 0 0 28px;
+  color: #e8e3d8;
+  font-size: 14px;
+}
+.onboard-pct { color: #7a7368; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.onboard-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  color: #9a9388;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.onboard-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Sample-data banner ──────────────────────────────────────────────── */
+.sample-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  padding: 12px 16px 12px 20px;
+  border: 1px dashed #c8a96a;
+  color: #c8a96a;
+  font-size: 13px;
+}
+.sample-banner .btn-ghost { padding: 8px 16px; font-size: 11px; }
+
+/* ── Settings additions ──────────────────────────────────────────────── */
+.set-select {
+  background: #0f0f0e;
+  color: #e8e3d8;
+  border: 1px solid #3a3833;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.upd-input-wrap .set-select { border: none; text-align: left; font-size: 16px; }
+.upd-input.set-text { text-align: left; font-family: 'Inter', sans-serif; font-size: 15px; }
+.danger-card { margin-top: 32px; }
+.bd-note { color: #7a7368; font-size: 12px; }
+
+@media (max-width: 760px) {
+  .onboard { padding: 32px 20px; margin: 16px auto; }
+  .onboard-title { font-size: 28px; }
+  .pp-nav .pp-lang button { padding: 6px 7px; }
+}

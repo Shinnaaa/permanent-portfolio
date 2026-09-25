@@ -10,9 +10,15 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { CATEGORY_COLORS, TOOLTIP_LABELS, formatCurrency } from "../lib/format";
+import { CATEGORY_COLORS, CATEGORY_KEYS } from "../lib/format";
+import { useLocale } from "../locale";
+
+function seriesLabel(t, key) {
+  return t(`cat.${key}`);
+}
 
 function TotalOverTimeTooltip({ active, payload, label }) {
+  const { t, money } = useLocale();
   if (!active || !payload || !payload.length) return null;
   return (
     <div className="tt">
@@ -20,9 +26,9 @@ function TotalOverTimeTooltip({ active, payload, label }) {
       {payload.map((item) => (
         <div className="tt-row" key={item.dataKey}>
           <span className="tt-key" style={{ color: item.color }}>
-            {TOOLTIP_LABELS[item.dataKey] || item.dataKey}
+            {seriesLabel(t, item.dataKey)}
           </span>
-          <span className="tt-val">{formatCurrency(item.value)}</span>
+          <span className="tt-val">{money(item.value)}</span>
         </div>
       ))}
     </div>
@@ -30,6 +36,7 @@ function TotalOverTimeTooltip({ active, payload, label }) {
 }
 
 function DriftTooltip({ active, payload, label }) {
+  const { t } = useLocale();
   if (!active || !payload || !payload.length) return null;
   const sum = payload.reduce((s, item) => s + (item.value || 0), 0);
   return (
@@ -40,7 +47,7 @@ function DriftTooltip({ active, payload, label }) {
         return (
           <div className="tt-row" key={item.dataKey}>
             <span className="tt-key" style={{ color: item.color }}>
-              {TOOLTIP_LABELS[item.dataKey] || item.dataKey}
+              {seriesLabel(t, item.dataKey)}
             </span>
             <span className="tt-val">{pct.toFixed(1)}%</span>
           </div>
@@ -50,7 +57,29 @@ function DriftTooltip({ active, payload, label }) {
   );
 }
 
+function Legend({ withTotal, children }) {
+  const { t } = useLocale();
+  return (
+    <div className="legend">
+      {withTotal && (
+        <div className="legend-item">
+          <span className="dot" style={{ background: "#c8a96a" }} />
+          <span className="legend-label">{t("cat.total")}</span>
+        </div>
+      )}
+      {CATEGORY_KEYS.map((key) => (
+        <div key={key} className="legend-item">
+          <span className="dot" style={{ background: CATEGORY_COLORS[key] }} />
+          <span className="legend-label">{t(`cat.${key}`)}</span>
+        </div>
+      ))}
+      {children}
+    </div>
+  );
+}
+
 export default function History({ snapshots, onClear, onExport, onImport }) {
+  const { t, money, moneyCompact } = useLocale();
   const rows = snapshots.map((snap) => ({
     ...snap,
     total: snap.stocks + snap.bonds + snap.gold + snap.cash,
@@ -59,17 +88,15 @@ export default function History({ snapshots, onClear, onExport, onImport }) {
   return (
     <div className="history">
       <div className="update-head">
-        <h1>History</h1>
-        <p className="update-sub">
-          {rows.length === 0 ? "尚无快照。每次保存市值时，会自动按月记录一条快照。" : `共 ${rows.length} 条月度快照。`}
-        </p>
+        <h1>{t("hist.title")}</h1>
+        <p className="update-sub">{rows.length === 0 ? t("hist.empty") : t("hist.count", { n: rows.length })}</p>
       </div>
 
       {rows.length > 0 && (
         <>
           <div className="card">
             <div className="card-head">
-              <h2>Total Assets Over Time</h2>
+              <h2>{t("hist.total")}</h2>
             </div>
             <div className="chart-wrap">
               <ResponsiveContainer width="100%" height={300}>
@@ -80,7 +107,7 @@ export default function History({ snapshots, onClear, onExport, onImport }) {
                     stroke="#7a7368"
                     tick={{ fontSize: 10, fontFamily: "JetBrains Mono, monospace" }}
                     axisLine={{ stroke: "#3a3833" }}
-                    tickFormatter={(v) => "¥" + (v / 10000).toFixed(0) + "万"}
+                    tickFormatter={moneyCompact}
                   />
                   <Tooltip content={<TotalOverTimeTooltip />} />
                   <Line type="monotone" dataKey="total" stroke="#c8a96a" strokeWidth={2.5} dot={{ fill: "#c8a96a", r: 4, stroke: "#0f0f0e", strokeWidth: 2 }} activeDot={{ r: 6 }} />
@@ -91,34 +118,13 @@ export default function History({ snapshots, onClear, onExport, onImport }) {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="legend">
-              <div className="legend-item">
-                <span className="dot" style={{ background: "#c8a96a" }} />
-                <span className="legend-label">Total</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.stocks }} />
-                <span className="legend-label">股票</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.bonds }} />
-                <span className="legend-label">债券</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.gold }} />
-                <span className="legend-label">黄金</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.cash }} />
-                <span className="legend-label">现金</span>
-              </div>
-            </div>
+            <Legend withTotal />
           </div>
 
           <div className="card">
             <div className="card-head">
-              <h2>Allocation Drift</h2>
-              <span className="card-sub">how your mix evolved</span>
+              <h2>{t("hist.drift")}</h2>
+              <span className="card-sub">{t("hist.driftSub")}</span>
             </div>
             <div className="chart-wrap">
               <ResponsiveContainer width="100%" height={280}>
@@ -161,55 +167,39 @@ export default function History({ snapshots, onClear, onExport, onImport }) {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            <div className="legend">
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.stocks }} />
-                <span className="legend-label">股票</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.bonds }} />
-                <span className="legend-label">债券</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.gold }} />
-                <span className="legend-label">黄金</span>
-              </div>
-              <div className="legend-item">
-                <span className="dot" style={{ background: CATEGORY_COLORS.cash }} />
-                <span className="legend-label">现金</span>
-              </div>
+            <Legend>
               <div className="legend-item" style={{ marginLeft: "auto", opacity: 0.6 }}>
                 <span style={{ display: "inline-block", width: 14, height: 1, borderTop: "1px dashed #e8e3d8", marginRight: 6 }} />
-                <span className="legend-label">25 / 50 / 75% guides</span>
+                <span className="legend-label">{t("hist.guides")}</span>
               </div>
-            </div>
+            </Legend>
           </div>
 
           <div className="card">
             <div className="card-head">
-              <h2>Snapshot Log</h2>
+              <h2>{t("hist.log")}</h2>
             </div>
             <div className="table-scroll">
               <table className="bd-table">
                 <thead>
                   <tr>
-                    <th className="left">Month</th>
-                    <th>Stocks</th>
-                    <th>Bonds</th>
-                    <th>Gold</th>
-                    <th>Cash</th>
-                    <th>Total</th>
+                    <th className="left">{t("hist.month")}</th>
+                    {CATEGORY_KEYS.map((key) => (
+                      <th key={key}>{t(`cat.${key}`)}</th>
+                    ))}
+                    <th>{t("cat.total")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {[...rows].reverse().map((r) => (
                     <tr key={r.ym}>
                       <td className="left mono">{r.ym}</td>
-                      <td className="num">{formatCurrency(r.stocks)}</td>
-                      <td className="num">{formatCurrency(r.bonds)}</td>
-                      <td className="num">{formatCurrency(r.gold)}</td>
-                      <td className="num">{formatCurrency(r.cash)}</td>
-                      <td className="num bold">{formatCurrency(r.total)}</td>
+                      {CATEGORY_KEYS.map((key) => (
+                        <td key={key} className="num">
+                          {money(r[key])}
+                        </td>
+                      ))}
+                      <td className="num bold">{money(r.total)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -221,23 +211,20 @@ export default function History({ snapshots, onClear, onExport, onImport }) {
 
       <div className="card sync-card">
         <div className="card-head">
-          <h2>Data Sync</h2>
-          <span className="card-sub">手动版</span>
+          <h2>{t("hist.backup")}</h2>
+          <span className="card-sub">{t("hist.backupSub")}</span>
         </div>
-        <p className="sync-text">
-          数据保存在浏览器 localStorage 中。要在手机/电脑间同步，请在一台设备上 <strong>Export</strong>，
-          把生成的 JSON 文件放进 iCloud Drive / Google Drive， 再在另一台设备上 <strong>Import</strong>。建议每月更新后导出一次作备份。
-        </p>
+        <p className="sync-text">{t("hist.backupBody")}</p>
         <div className="sync-actions">
           <button className="btn-primary" onClick={onExport}>
-            ↓ Export JSON
+            ↓ {t("data.export")}
           </button>
           <button className="btn-ghost" onClick={onImport}>
-            ↑ Import JSON
+            ↑ {t("data.import")}
           </button>
           {snapshots.length > 0 && (
             <button className="btn-ghost danger" onClick={onClear}>
-              Clear Snapshots
+              {t("hist.clear")}
             </button>
           )}
         </div>

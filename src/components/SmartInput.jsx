@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { parseExpression } from "../lib/format";
+import { useLocale } from "../locale";
 
-// A numeric text input that accepts arithmetic expressions (e.g. "50000+3万")
-// and previews the evaluated result before it's committed on blur.
+// A numeric text input that accepts arithmetic expressions (e.g. "50000+3万",
+// "1.2k+300") and previews the evaluated result before it's committed on blur.
 export default function SmartInput({ value, onChange, className, placeholder, onFocus }) {
+  const { money } = useLocale();
   const [text, setText] = useState(String(value ?? 0));
   const [preview, setPreview] = useState(null);
 
@@ -28,7 +30,7 @@ export default function SmartInput({ value, onChange, className, placeholder, on
   const handleChange = (e) => {
     const next = e.target.value;
     setText(next);
-    if (/[+\-*/]/.test(next.replace(/^-/, ""))) {
+    if (/[+\-*/万kKmM]/.test(next.replace(/^-/, ""))) {
       const parsed = parseExpression(next);
       setPreview(parsed !== null ? Math.round(parsed) : null);
     } else {
@@ -61,7 +63,7 @@ export default function SmartInput({ value, onChange, className, placeholder, on
       />
       {preview !== null && preview !== Number(text) && (
         <span className="expr-preview" aria-hidden="true">
-          = {preview.toLocaleString("en-US")}
+          = {money(preview)}
         </span>
       )}
     </>

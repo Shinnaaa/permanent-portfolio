@@ -1,12 +1,11 @@
-// Suggests how to split newly-arriving money (salary, other outside income —
+// Suggests how to split newly-arriving money (from outside the portfolio —
 // this app doesn't track where it comes from) across all four categories,
-// including cash/MMF: cash is a normal 25%-target destination here, not a
-// source, since the new money never lived in the existing MMF balance. Two
-// modes:
+// including cash: cash is a normal target destination here, not a source,
+// since the new money was never part of the existing cash balance. Two modes:
 //  - "smart": fills the most-underweight categories first, then spills any
 //    remainder across categories proportional to their target weight.
 //  - "proportional": always splits strictly by target weight.
-export function computeAllocation(amount, mode, total, cats) {
+export function computeAllocation(amount, mode, total, cats, roundTo = 100) {
   if (!amount || amount <= 0) return { suggestions: null, projection: null };
 
   const newTotal = total + amount;
@@ -20,7 +19,7 @@ export function computeAllocation(amount, mode, total, cats) {
   if (mode === "proportional") {
     suggestions = withGap.map((c) => {
       const allocated = amount * c.target;
-      return { key: c.key, label: c.label, amount: allocated, currentValue: c.value, newValue: c.value + allocated };
+      return { key: c.key, amount: allocated, currentValue: c.value, newValue: c.value + allocated };
     });
   } else {
     const totalGap = withGap.reduce((sum, c) => sum + c.gap, 0);
@@ -28,18 +27,18 @@ export function computeAllocation(amount, mode, total, cats) {
     if (amount <= totalGap) {
       raw = withGap.map((c) => {
         const allocated = totalGap > 0 ? amount * (c.gap / totalGap) : 0;
-        return { key: c.key, label: c.label, amount: allocated, currentValue: c.value, newValue: c.value + allocated };
+        return { key: c.key, amount: allocated, currentValue: c.value, newValue: c.value + allocated };
       });
     } else {
       const remaining = amount - totalGap;
       raw = withGap.map((c) => {
         const allocated = c.gap + remaining * c.target;
-        return { key: c.key, label: c.label, amount: allocated, currentValue: c.value, newValue: c.value + allocated };
+        return { key: c.key, amount: allocated, currentValue: c.value, newValue: c.value + allocated };
       });
     }
-    // Round to the nearest 100 for tidy numbers, then nudge the largest
-    // category so the rounded amounts still sum to the exact input.
-    const rounded = raw.map((c) => ({ ...c, amount: Math.round(c.amount / 100) * 100 }));
+    // Round to tidy numbers (¥100, $1, … — see currency.roundingStep), then
+    // nudge the largest category so the rounded amounts still sum to the exact input.
+    const rounded = raw.map((c) => ({ ...c, amount: Math.round(c.amount / roundTo) * roundTo }));
     const roundedTotal = rounded.reduce((sum, c) => sum + c.amount, 0);
     const remainder = amount - roundedTotal;
     if (remainder !== 0) {

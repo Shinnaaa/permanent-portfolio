@@ -1,15 +1,18 @@
 import { useState } from "react";
-import { formatPercent } from "../lib/format";
+import { CURRENCY_CODES } from "../lib/currency";
+import { CATEGORY_KEYS, formatPercent } from "../lib/format";
+import { useLocale } from "../locale";
 
 const TARGET_FIELDS = [
-  { key: "targetStocks", label: "股票 Stocks" },
-  { key: "targetBonds", label: "长期债券 Long Bonds" },
-  { key: "targetGold", label: "黄金 Gold" },
-  { key: "targetCash", label: "现金 Cash" },
+  { key: "targetStocks", cat: "stocks" },
+  { key: "targetBonds", cat: "bonds" },
+  { key: "targetGold", cat: "gold" },
+  { key: "targetCash", cat: "cash" },
 ];
 
-export default function Settings({ settings, onSave, sync, syncStatus, syncError, onConnectSync, onDisconnectSync, onManualPull }) {
-  const [local, setLocal] = useState({ ...settings });
+export default function Settings({ settings, onSave, onReset, sync, syncStatus, syncError, onConnectSync, onDisconnectSync, onManualPull }) {
+  const { t, catLabel } = useLocale();
+  const [local, setLocal] = useState({ ...settings, notes: { ...settings.notes } });
   const [tokenInput, setTokenInput] = useState("");
   const [showToken, setShowToken] = useState(false);
 
@@ -24,69 +27,86 @@ export default function Settings({ settings, onSave, sync, syncStatus, syncError
   return (
     <div className="settings">
       <div className="update-head">
-        <h1>Settings</h1>
-        <p className="update-sub">目标比例、再平衡阈值、跨设备同步。</p>
+        <h1>{t("set.title")}</h1>
+        <p className="update-sub">{t("set.sub")}</p>
       </div>
 
       <div className="card">
         <div className="card-head">
-          <h2>Cloud Sync</h2>
+          <h2>{t("set.general")}</h2>
+        </div>
+        <div className="set-row">
+          <div className="set-meta">
+            <div className="set-label">{t("set.currency")}</div>
+            <div className="set-en">{t("set.currencyHint")}</div>
+          </div>
+          <div className="upd-input-wrap">
+            <select
+              className="upd-input set-select"
+              value={local.currency}
+              onChange={(e) => setLocal({ ...local, currency: e.target.value })}
+            >
+              {CURRENCY_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2>{t("cloud.title")}</h2>
           <span className={`card-sub sync-status-${syncStatus}`}>
             {sync.enabled
               ? syncStatus === "syncing"
-                ? "Syncing…"
+                ? t("cloud.statusSyncing")
                 : syncStatus === "err"
-                ? "Error"
+                ? t("cloud.statusError")
                 : sync.lastSyncAt
-                ? `Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
-                : "Connected"
-              : "Not connected"}
+                ? t("sync.lastSync", { time: new Date(sync.lastSyncAt).toLocaleString() })
+                : t("cloud.statusConnected")
+              : t("cloud.statusOff")}
           </span>
         </div>
         {sync.enabled ? (
           <>
             <p className="sync-text">
-              已连接到 Gist <code>{sync.gistId.slice(0, 8)}…</code>
-              {sync.lastSyncAt && <> · 最后同步 {new Date(sync.lastSyncAt).toLocaleString()}</>}
+              {t("cloud.connectedTo", { id: `${sync.gistId.slice(0, 8)}…` })}
+              {sync.lastSyncAt && t("cloud.lastSync", { time: new Date(sync.lastSyncAt).toLocaleString() })}
             </p>
             <p className="sync-text" style={{ fontSize: 13, color: "#7a7368" }}>
-              数据每次更新后自动推送到 Gist（约 1.5 秒延迟）。在另一台设备上打开页面会自动从 Gist 拉取最新数据。
-              如果手动拉取失败，可以点导航栏的 <strong>Synced</strong> 徽章手动刷新。
+              {t("cloud.autoBody")}
             </p>
             <div className="sync-actions">
               <button className="btn-ghost" onClick={onManualPull} disabled={syncStatus === "syncing"}>
-                ↓ Pull from Gist
+                {t("cloud.pull")}
               </button>
               <button className="btn-ghost danger" onClick={onDisconnectSync}>
-                Disconnect
+                {t("cloud.disconnect")}
               </button>
             </div>
             {syncError && <div className="sync-error">{syncError}</div>}
           </>
         ) : (
           <>
-            <p className="sync-text">
-              用 GitHub Gist 在多设备间自动同步数据。Token 仅保存在本机浏览器，不会上传到任何服务器。
-              数据存放在你 GitHub 账号下的<strong>私密 Gist</strong>，只有你能访问。
-            </p>
+            <p className="sync-text">{t("cloud.intro")}</p>
             <ol className="sync-steps">
               <li>
-                访问{" "}
-                <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noreferrer">
-                  github.com/settings/tokens
+                {t("cloud.step1")}{" "}
+                <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">
+                  github.com/settings/personal-access-tokens
                 </a>
               </li>
+              <li>{t("cloud.step2")}</li>
+              <li>{t("cloud.step3")}</li>
               <li>
-                点 <strong>Generate new token (Fine-grained)</strong>
+                <strong>{t("cloud.step4")}</strong>
               </li>
-              <li>Token name 随便填（如 "Portfolio Sync"），Expiration 选 1 年或 No expiration</li>
-              <li>
-                <strong>Account permissions → Gists → Read and write</strong>
-              </li>
-              <li>
-                Generate token，复制开头是 <code>github_pat_</code> 的字符串
-              </li>
-              <li>粘贴到下面 →</li>
+              <li>{t("cloud.step5")}</li>
+              <li>{t("cloud.step6")} →</li>
             </ol>
             <div className="set-row sync-input-row">
               <div className="upd-input-wrap" style={{ flex: 1 }}>
@@ -105,13 +125,13 @@ export default function Settings({ settings, onSave, sync, syncStatus, syncError
                   style={{ cursor: "pointer", background: "none", border: "none", borderLeft: "1px solid #2a2823" }}
                   onClick={() => setShowToken(!showToken)}
                 >
-                  {showToken ? "HIDE" : "SHOW"}
+                  {showToken ? t("cloud.hide") : t("cloud.show")}
                 </button>
               </div>
             </div>
             <div className="sync-actions">
               <button className="btn-primary" disabled={!tokenInput || syncStatus === "syncing"} onClick={() => onConnectSync(tokenInput.trim())}>
-                {syncStatus === "syncing" ? "Connecting…" : "Connect Gist Sync"}
+                {syncStatus === "syncing" ? t("cloud.connecting") : t("cloud.connect")}
               </button>
             </div>
             {syncError && <div className="sync-error">{syncError}</div>}
@@ -121,15 +141,15 @@ export default function Settings({ settings, onSave, sync, syncStatus, syncError
 
       <div className="card">
         <div className="card-head">
-          <h2>Target Allocation</h2>
+          <h2>{t("set.targets")}</h2>
           <span className={`card-sub ${targetsValid ? "" : "warn"}`}>
-            sum {formatPercent(targetSum)} {targetsValid ? "✓" : "— must equal 100%"}
+            {t("set.sum", { pct: formatPercent(targetSum) })} {targetsValid ? "✓" : t("set.mustBe100")}
           </span>
         </div>
         {TARGET_FIELDS.map((field) => (
           <div key={field.key} className="set-row">
             <div className="set-meta">
-              <div className="set-label">{field.label}</div>
+              <div className="set-label">{catLabel(field.cat)}</div>
             </div>
             <div className="upd-input-wrap">
               <input
@@ -148,12 +168,12 @@ export default function Settings({ settings, onSave, sync, syncStatus, syncError
 
       <div className="card">
         <div className="card-head">
-          <h2>Rebalance Threshold</h2>
+          <h2>{t("set.threshold")}</h2>
         </div>
         <div className="set-row">
           <div className="set-meta">
-            <div className="set-label">Deviation tolerance</div>
-            <div className="set-en">实际偏离目标超过此值时提示再平衡</div>
+            <div className="set-label">{t("set.tolerance")}</div>
+            <div className="set-en">{t("set.toleranceHint")}</div>
           </div>
           <div className="upd-input-wrap">
             <input
@@ -169,10 +189,45 @@ export default function Settings({ settings, onSave, sync, syncStatus, syncError
         </div>
       </div>
 
+      <div className="card">
+        <div className="card-head">
+          <h2>{t("set.notes")}</h2>
+        </div>
+        <p className="sync-text">{t("set.notesHint")}</p>
+        {CATEGORY_KEYS.map((key) => (
+          <div key={key} className="set-row">
+            <div className="set-meta">
+              <div className="set-label">{catLabel(key)}</div>
+            </div>
+            <div className="upd-input-wrap">
+              <input
+                type="text"
+                className="upd-input set-text"
+                maxLength={40}
+                value={local.notes[key]}
+                onChange={(e) => setLocal({ ...local, notes: { ...local.notes, [key]: e.target.value } })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="update-actions">
         <button className="btn-primary" disabled={!targetsValid} onClick={() => onSave(local)}>
-          Save Settings
+          {t("set.save")}
         </button>
+      </div>
+
+      <div className="card danger-card">
+        <div className="card-head">
+          <h2>{t("set.data")}</h2>
+        </div>
+        <p className="sync-text">{t("set.dataHint")}</p>
+        <div className="sync-actions">
+          <button className="btn-ghost danger" onClick={onReset}>
+            {t("set.reset")}
+          </button>
+        </div>
       </div>
     </div>
   );

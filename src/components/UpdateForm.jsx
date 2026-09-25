@@ -1,58 +1,48 @@
 import { useState } from "react";
 import SmartInput from "./SmartInput";
 import QuickAdjustPopover from "./QuickAdjustPopover";
-import { formatCurrency } from "../lib/format";
+import { CATEGORY_KEYS } from "../lib/format";
+import { useLocale } from "../locale";
 
-const FIELDS = [
-  { key: "stocks", label: "股票", en: "Stocks", hint: "证券 App「投信」合计評価額" },
-  { key: "bonds", label: "长期债券", en: "Long-term Bonds", hint: "债券 ETF + PayPay 债券评价额" },
-  { key: "gold", label: "黄金", en: "Gold", hint: "黄金基金 + PayPay 黄金评价额" },
-  { key: "cash", label: "现金", en: "USD MMF", hint: "美元货币基金账户当前市值（自行换算为日元）" },
-];
-
-export default function UpdateForm({ editing, onSave, onCancel }) {
-  const [values, setValues] = useState({
-    stocks: editing.stocks ?? 0,
-    bonds: editing.bonds ?? 0,
-    gold: editing.gold ?? 0,
-    cash: editing.cash ?? 0,
-  });
+export default function UpdateForm({ editing, notes, onSave, onCancel }) {
+  const { t, money, catLabel, symbol, currency } = useLocale();
+  const [values, setValues] = useState(
+    Object.fromEntries(CATEGORY_KEYS.map((key) => [key, editing[key] ?? 0]))
+  );
   const [popoverField, setPopoverField] = useState(null);
 
   const setField = (key, value) => setValues({ ...values, [key]: value });
 
-  const computedTotal = values.stocks + values.bonds + values.gold + values.cash;
-
-  const handleSave = () => onSave(values);
+  const computedTotal = CATEGORY_KEYS.reduce((sum, key) => sum + values[key], 0);
 
   return (
     <div className="update">
       <div className="update-head">
-        <h1>Update Values</h1>
-        <p className="update-sub">四项都填当前市值（覆盖式），跟证券 / 货币基金 App 里看到的一致就行</p>
+        <h1>{t("upd.title")}</h1>
+        <p className="update-sub">{t("upd.sub")}</p>
       </div>
 
       <div className="update-form">
-        {FIELDS.map((field) => (
-          <div key={field.key} className="upd-row">
+        {CATEGORY_KEYS.map((key) => (
+          <div key={key} className="upd-row">
             <div className="upd-meta">
-              <div className="upd-label">{field.label}</div>
-              <div className="upd-en">{field.en}</div>
-              <div className="upd-hint">{field.hint}</div>
+              <div className="upd-label">{catLabel(key)}</div>
+              {notes[key] && <div className="upd-en">{notes[key]}</div>}
+              <div className="upd-hint">{t(`upd.hint.${key}`)}</div>
             </div>
             <div className="upd-input-col">
               <div className="upd-input-wrap">
-                <span className="upd-cur">¥</span>
+                <span className="upd-cur">{symbol}</span>
                 <SmartInput
                   className="upd-input"
-                  value={values[field.key]}
-                  onChange={(v) => setField(field.key, v)}
+                  value={values[key]}
+                  onChange={(v) => setField(key, v)}
                   onFocus={(e) => e.target.select()}
                 />
-                <button type="button" className="upd-add-btn" title="加/减一笔" onClick={() => setPopoverField(field.key)}>
+                <button type="button" className="upd-add-btn" title={t("upd.adjust")} onClick={() => setPopoverField(key)}>
                   ＋
                 </button>
-                <span className="upd-cur-label">JPY</span>
+                <span className="upd-cur-label">{currency}</span>
               </div>
             </div>
           </div>
@@ -61,17 +51,17 @@ export default function UpdateForm({ editing, onSave, onCancel }) {
 
       <div className="update-form" style={{ padding: 0, background: "transparent", border: "none" }}>
         <div className="upd-total">
-          <span className="upd-total-label">Computed Total</span>
-          <span className="upd-total-value">{formatCurrency(computedTotal)}</span>
+          <span className="upd-total-label">{t("upd.computedTotal")}</span>
+          <span className="upd-total-value">{money(computedTotal)}</span>
         </div>
       </div>
 
       <div className="update-actions">
         <button className="btn-ghost" onClick={onCancel}>
-          Cancel
+          {t("btn.cancel")}
         </button>
-        <button className="btn-primary" onClick={handleSave}>
-          Save &amp; Snapshot
+        <button className="btn-primary" onClick={() => onSave(values)}>
+          {t("upd.save")}
         </button>
       </div>
 
